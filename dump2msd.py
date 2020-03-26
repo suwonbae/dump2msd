@@ -55,7 +55,7 @@ if rank == 0:
     mol_of_interest = phase0
     #mol_of_interest = morph['mol'][0][0]
 
-    if mol_of_interest not None:
+    if mol_of_interest is not None:
         for jind in range(len(mol_of_interest)):
             if jind == 0:
                 logic = trj[:,1] == mol_of_interest[jind]
