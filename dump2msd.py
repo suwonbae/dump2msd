@@ -55,11 +55,14 @@ if rank == 0:
     mol_of_interest = phase0
     #mol_of_interest = morph['mol'][0][0]
 
-    for jind in range(len(mol_of_interest)):
-        if jind == 0:
-            logic = trj[:,1] == mol_of_interest[jind]
-        else:
-            logic = logic | (trj[:,1] == mol_of_interest[jind])
+    if mol_of_interest not None:
+        for jind in range(len(mol_of_interest)):
+            if jind == 0:
+                logic = trj[:,1] == mol_of_interest[jind]
+            else:
+                logic = logic | (trj[:,1] == mol_of_interest[jind])
+    else:
+        logic = [True for i in range(N)]
     
     msd_dim = [3,4] # [3,4,5] for msd in 3d space; [3,4] for msd in xy-plane; [5] for msd along z direction
     msd_denom = sum(logic)
