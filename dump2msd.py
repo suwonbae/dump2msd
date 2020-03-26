@@ -1,4 +1,5 @@
 import numpy as np
+import time
 from mpi4py import MPI
 
 def d_pbc(vector1,vector2,boxlength):
@@ -31,10 +32,11 @@ f_ind = np.linspace(0, 990000, 100, dtype=int) #file index
 avg_rows_per_process = int(len(f_ind)/size)
 
 if rank == 0:
-    box = []
-    msd = []
+    t0 = time.time()
 
-    infile = 'dump.0'
+    box = []
+
+    infile = 'dump/dump.0'
     f = open(infile, 'r')
     for iind in range(5):
         f.readline()
@@ -42,10 +44,36 @@ if rank == 0:
         line = f.readline().split()
         box.append([float(line[0]), float(line[1])])
     f.close()
+
+    trj = np.loadtxt(infile, skiprows=9)
+    trj = trj[np.lexsort(np.fliplr(trj).T)][:N,:]
+ 
+    morph = np.load('morph.npy', allow_pickle='TRUE').item()
+    
+    phase0 = np.concatenate([morph['mol'][i][0] for i in morph['mol']])
+    #phase1 = np.concatenate([morph['mol'][i][1] for i in morph['mol']])
+    mol_of_interest = phase0
+    #mol_of_interest = morph['mol'][0][0]
+
+    for jind in range(len(mol_of_interest)):
+        if jind == 0:
+            logic = trj[:,1] == mol_of_interest[jind]
+        else:
+            logic = logic | (trj[:,1] == mol_of_interest[jind])
+    
+    msd_dim = [3,4] # [3,4,5] for msd in 3d space; [3,4] for msd in xy-plane; [5] for msd along z direction
+    msd_denom = sum(logic)
+
 else:
     box = None
+    logic = None
+    msd_dim = None
+    msd_denom = None
 
 box = comm.bcast(box, root=0)
+logic = comm.bcast(logic, root=0)
+msd_dim = comm.bcast(msd_dim, root=0)
+msd_denom = comm.bcast(msd_denom, root=0)
 
 dis = {}
 
@@ -58,7 +86,7 @@ if rank == size-1:
     end_ind = end_row
 
 for iind in range(start_row, end_ind):
-    infile = 'dump.'+str(f_ind[iind])
+    infile = 'dump/dump.'+str(f_ind[iind])
     trj = np.loadtxt(infile, skiprows=9)
     trj = trj[np.lexsort(np.fliplr(trj).T)][:N,:]
         
@@ -75,7 +103,7 @@ for iind in range(start_row, end_ind):
             #displacement vector over pbc
             dis_temp[jind,3:] = d_pbc(trj[jind,3:],trj_prev[jind,3:],[box[0][1]-box[0][0], box[1][1]-box[1][0]])
 
-        dis_temp[:,3:] = dis_temp[:,3:] + dis[iind-1][:,3:]
+        dis_temp[:,3:] += dis[iind-1][:,3:]
 
     dis.update({iind : dis_temp})
     trj_prev = trj
@@ -95,7 +123,7 @@ elif rank == size-1:
     req.Wait()
 
     for iind in range(start_row, end_row):
-        dis[iind][:,3:] = dis[iind][:,3:] + data[:,3:]
+        dis[iind][:,3:] += data[:,3:]
 
     #dis[end_row-1] is the very last displacement, which is necessary to calculates displacements for the subsequent simulation
     np.savetxt('dis_end.txt',dis[end_row-1][:,[0,3,4,5]]) 
@@ -108,17 +136,20 @@ else:
     #even though rank n processor processes from dis[start_row] to dis[end_row-1],
     #dis[end_row] works as a bridge b/w ranks n and n+1, and has to be sent to rank n+1
     for iind in range(start_row, end_row+1): 
-        dis[iind][:,3:] = dis[iind][:,3:] + data[:,3:]
+        dis[iind][:,3:] += data[:,3:]
 
     data = dis[end_row] #dis[end_row] works as a bridge b/w adjacent processors
     req = comm.Isend(data, dest=(rank+1))
     req.Wait()
 
-'collect msd from all processors'
+'calculates and collect msd from all procs'
 if rank == 0:
+    t1 = time.time() - t0
+    print (t1)
+
     msd = np.zeros(end_row - start_row)
     for iind in range(start_row, end_row):
-        msd[iind - start_row] = sum(np.linalg.norm(dis[iind][:,3:], axis=1)**2)/N
+        msd[iind - start_row] = sum(np.linalg.norm(dis[iind][logic][:,msd_dim], axis=1)**2)/msd_denom
 
     for iind in range(1, size):
         start_row = iind * avg_rows_per_process
@@ -135,11 +166,14 @@ if rank == 0:
 else:
     msd_temp = np.zeros(end_row - start_row)
     for iind in range(start_row, end_row):
-        msd_temp[iind - start_row] = sum(np.linalg.norm(dis[iind][:,3:], axis=1)**2)/N
+        msd_temp[iind - start_row] = sum(np.linalg.norm(dis[iind][logic][:,msd_dim], axis=1)**2)/msd_denom
 
     req = comm.Isend(msd_temp, dest=0)
     req.Wait()
 
 'save msd'
 if rank == 0:
+    t2 = time.time() - t0
+    print (t2)
+
     np.savetxt('msd_test.txt', msd)
