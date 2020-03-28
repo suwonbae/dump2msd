@@ -28,7 +28,12 @@ rank = comm.Get_rank()
 
 N = 47520 #number of beads/atoms of interest (from atom 1 to atom N / atom 0 to atom N-1)
 subs = 0 #1 if for subsequent simulation
+dim = 'xy' #xyz, xy, or z
+filename = 'msd_test.txt'
+f_path = 'dump'
+f_name = 'dump.'
 f_ind = np.linspace(0, 990000, 100, dtype=int) #file index
+
 avg_rows_per_process = int(len(f_ind)/size)
 
 if rank == 0:
@@ -36,7 +41,7 @@ if rank == 0:
 
     box = []
 
-    infile = 'dump/dump.0'
+    infile = f_path + '/' + f_name + '0'
     f = open(infile, 'r')
     for iind in range(5):
         f.readline()
@@ -54,6 +59,7 @@ if rank == 0:
     #phase1 = np.concatenate([morph['mol'][i][1] for i in morph['mol']])
     mol_of_interest = phase0
     #mol_of_interest = morph['mol'][0][0]
+    #mol_of_interest = None
 
     if mol_of_interest is not None:
         for jind in range(len(mol_of_interest)):
@@ -63,8 +69,15 @@ if rank == 0:
                 logic = logic | (trj[:,1] == mol_of_interest[jind])
     else:
         logic = [True for i in range(N)]
-    
-    msd_dim = [3,4] # [3,4,5] for msd in 3d space; [3,4] for msd in xy-plane; [5] for msd along z direction
+
+    # [3,4,5] for msd in 3d space; [3,4] for msd in xy-plane; [5] for msd along z direction
+    if dim == 'xy':
+        msd_dim = [3,4]
+    elif dim == 'xyz':
+        msd_dim = [3,4,5]
+    elif dim == 'z':
+        msd_dim = [5]
+
     msd_denom = sum(logic)
 
 else:
@@ -89,7 +102,7 @@ if rank == size-1:
     end_ind = end_row
 
 for iind in range(start_row, end_ind):
-    infile = 'dump/dump.'+str(f_ind[iind])
+    infile = f_path + '/' + f_name + str(f_ind[iind])
     trj = np.loadtxt(infile, skiprows=9)
     trj = trj[np.lexsort(np.fliplr(trj).T)][:N,:]
         
@@ -179,4 +192,4 @@ if rank == 0:
     t2 = time.time() - t0
     print (t2)
 
-    np.savetxt('msd_test.txt', msd)
+    np.savetxt(filename, msd)
